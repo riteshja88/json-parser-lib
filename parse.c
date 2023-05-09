@@ -1,123 +1,756 @@
 #include <stdio.h>
 #include <string.h>
 
-typedef struct struct1_t {
-	char x[10 + 1];
-} struct1_t;
-
-#define MIN(a,b) ((a<b)?(a):(b))
-
+typedef struct json_value_in_serialized_json_t {
+	const unsigned char *json_value_start;
+	unsigned int json_value_len;
+} json_value_in_serialized_json_t;
 
 
-typedef struct json_string_in_serialized_json_t {
-	const char *json_string_start;
-	unsigned int json_string_len;
-} json_string_in_serialized_json_t;
+/*
+  string     => '"' characters '"'
 
+  characters => ""
+  characters => character characters
 
-int parse_json_string(const char serialized_json[],
-					  json_string_in_serialized_json_t *json_string_value)
+  character => '20' . 'FF' - '"' - '\'
+            => '\' escape
+
+  escape    => '"'
+            => '\'
+            => '/'
+            => 'b'
+            => 'f'
+            => 'n'
+            => 'r'
+            => 't'
+            => 'u' hex hex hex hex
+
+   hex      => digit
+            => 'A' . 'F'
+            => 'a' . 'f'
+
+  digit    => '0'
+           => onenine
+
+  onenine  => '1' . '9'
+			
+  
+*/
+#define IS_ONENINE(c) ((c) >= '1' && (c) <= '9')
+
+#define IS_DIGIT(c) (('0' == (c)) ||			\
+					 IS_ONENINE((c)))
+
+#define IS_HEX(c) (IS_DIGIT((c))	||				\
+				   ((c) >= 'a' && (c) <= 'f') ||	\
+				   ((c) >= 'A' && (c) <= 'F'))
+
+int parse_json_value_string(const unsigned char serialized_json[],
+							json_value_in_serialized_json_t *json_value_string)
 {
 	int bytes_parsed = 0;
+	json_value_string->json_value_start = &serialized_json[bytes_parsed];
 	if('\"' != serialized_json[bytes_parsed] /* open quote */) {
 		return -bytes_parsed;
 	}
 	bytes_parsed++;
 
-	json_string_value->json_string_start = &serialized_json[bytes_parsed];
-	while('\0' != serialized_json[bytes_parsed] &&
-		  '\"' != serialized_json[bytes_parsed] /* while close quote is not found  */) {
-		bytes_parsed++;
-	}
-	json_string_value->json_string_len = (&serialized_json[bytes_parsed] /* json_string_end */ -
-										json_string_value->json_string_start);
+	while('\0' != serialized_json[bytes_parsed]) {
+		if(serialized_json[bytes_parsed] < 0x20) { /* '00' . '1F' */
+			return -bytes_parsed;
+		}
+		else if('\\' == serialized_json[bytes_parsed]) { /* '\' escape */
+			bytes_parsed++;
+			switch(serialized_json[bytes_parsed]) {
+				case '\"':
+				case '\\':
+				case '/':
+				case 'b':
+				case 'f':
+				case 'n':
+				case 'r':
+				case 't':
+					bytes_parsed++;
+					break;
 
+				case 'u':
+					bytes_parsed++;
+					if(IS_HEX(serialized_json[bytes_parsed])) {
+					}
+					else {
+						return -bytes_parsed;
+					}
+					bytes_parsed++;
+
+					if(IS_HEX(serialized_json[bytes_parsed])) {
+					}
+					else {
+						return -bytes_parsed;
+					}
+					bytes_parsed++;
+
+					if(IS_HEX(serialized_json[bytes_parsed])) {
+					}
+					else {
+						return -bytes_parsed;
+					}
+					bytes_parsed++;
+
+					if(IS_HEX(serialized_json[bytes_parsed])) {
+					}
+					else {
+						return -bytes_parsed;
+					}
+					bytes_parsed++;
+					break;
+
+				default:
+					return -bytes_parsed;
+			}
+		}
+		else if('\"' != serialized_json[bytes_parsed]) { /* '20' . 'FF' - '"' - '\' */
+			bytes_parsed++;
+		}
+		else { /* '"' */
+			break;
+		}
+	}
+	
 	if('\"' != serialized_json[bytes_parsed] /* close quote */) {
 		return -bytes_parsed;
 	}
 	bytes_parsed++;
 
-	
+	json_value_string->json_value_len = (&serialized_json[bytes_parsed] /* json_string_end */ -
+										 json_value_string->json_value_start);
 
 	return bytes_parsed;
 }
 
-int parse_json_object_struct1_t(const char serialized_json[],
-								struct1_t * const struct1)
+
+/*
+  number    => integer fraction exponent
+
+  integer    => digit
+             => onenine digits
+             => '-' digit
+             => '-' onenine digits
+
+  digits    => digit
+            => digit digits
+
+  digit     => '0'
+            => onenine
+
+  onenine   => '1' . '9'
+
+  fraction  => ""
+            => '.' digits
+
+  exponent  => ""
+            => 'E' sign digits
+            => 'e' sign digits
+
+  sign      => ''
+            => '+'
+            => '-'
+
+*/
+int parse_json_value_number(const unsigned char serialized_json[],
+							json_value_in_serialized_json_t *json_value_number)
+{
+	int bytes_parsed = 0;
+	json_value_number->json_value_start = &serialized_json[bytes_parsed];
+
+	/* integer */
+	if('-' == serialized_json[bytes_parsed] /* '-' */) {
+		bytes_parsed++;
+	}
+	
+	if(IS_DIGIT(serialized_json[bytes_parsed]) &&
+	   !IS_DIGIT(serialized_json[bytes_parsed + 1])) { /* digit */
+		bytes_parsed++;
+	}
+	else if(IS_ONENINE(serialized_json[bytes_parsed]) &&
+			IS_DIGIT(serialized_json[bytes_parsed + 1])) { /* onenine digits */
+		bytes_parsed++;
+		bytes_parsed++;
+		while('\0' != serialized_json[bytes_parsed]) {
+			if(IS_DIGIT(serialized_json[bytes_parsed])) {
+				bytes_parsed++;
+			}
+			else {
+				break;
+			}
+		}
+	}
+	else {
+		return -bytes_parsed;
+	}
+
+	/* fraction */
+	if('.' == serialized_json[bytes_parsed]) { /* '.' digits */
+		bytes_parsed++;
+		if(IS_DIGIT(serialized_json[bytes_parsed])) {
+			bytes_parsed++;
+		}
+		else {
+			return -bytes_parsed;
+		}
+		while('\0' != serialized_json[bytes_parsed]) {
+			if(IS_DIGIT(serialized_json[bytes_parsed])) {
+				bytes_parsed++;
+			}
+			else {
+				break;
+			}
+		}
+	}
+
+	/* exponent */
+	if('E' == serialized_json[bytes_parsed] ||
+	   'e' == serialized_json[bytes_parsed]) {
+		/*
+		  'E' sign digits
+		  'e' sign digits
+		*/
+		bytes_parsed++;
+
+		/* sign */
+		if('-' == serialized_json[bytes_parsed] ||
+		   '+' == serialized_json[bytes_parsed]) {
+			bytes_parsed++;
+		}
+
+		if(IS_DIGIT(serialized_json[bytes_parsed])) {
+			bytes_parsed++;
+		}
+		else {
+			return -bytes_parsed;
+		}
+
+		while('\0' != serialized_json[bytes_parsed]) {
+			if(IS_DIGIT(serialized_json[bytes_parsed])) {
+				bytes_parsed++;
+			}
+			else {
+				break;
+			}
+		}
+	}
+
+	json_value_number->json_value_len = (&serialized_json[bytes_parsed] /* json_string_end */ -
+										 json_value_number->json_value_start);
+	return bytes_parsed;
+}
+
+
+/*
+  "true"
+*/
+int parse_json_value_boolean_true(const unsigned char serialized_json[],
+								  json_value_in_serialized_json_t *json_value_boolean_true)
+{
+	int bytes_parsed = 0;
+	json_value_boolean_true->json_value_start = &serialized_json[bytes_parsed];
+
+	if('t' == serialized_json[bytes_parsed]) {
+		bytes_parsed++;
+	}
+	else {
+		return -bytes_parsed;
+	}
+
+	if('r' == serialized_json[bytes_parsed]) {
+		bytes_parsed++;
+	}
+	else {
+		return -bytes_parsed;
+	}
+
+	if('u' == serialized_json[bytes_parsed]) {
+		bytes_parsed++;
+	}
+	else {
+		return -bytes_parsed;
+	}
+
+	if('e' == serialized_json[bytes_parsed]) {
+		bytes_parsed++;
+	}
+	else {
+		return -bytes_parsed;
+	}
+
+	json_value_boolean_true->json_value_len = (&serialized_json[bytes_parsed] /* json_string_end */ -
+											   json_value_boolean_true->json_value_start);
+	return bytes_parsed;
+}
+
+/*
+  "false"
+*/
+int parse_json_value_boolean_false(const unsigned char serialized_json[],
+								   json_value_in_serialized_json_t *json_value_boolean_false)
+{
+	int bytes_parsed = 0;
+	json_value_boolean_false->json_value_start = &serialized_json[bytes_parsed];
+
+	if('f' == serialized_json[bytes_parsed]) {
+		bytes_parsed++;
+	}
+	else {
+		return -bytes_parsed;
+	}
+
+	if('a' == serialized_json[bytes_parsed]) {
+		bytes_parsed++;
+	}
+	else {
+		return -bytes_parsed;
+	}
+
+	if('l' == serialized_json[bytes_parsed]) {
+		bytes_parsed++;
+	}
+	else {
+		return -bytes_parsed;
+	}
+
+	if('s' == serialized_json[bytes_parsed]) {
+		bytes_parsed++;
+	}
+	else {
+		return -bytes_parsed;
+	}
+
+	if('e' == serialized_json[bytes_parsed]) {
+		bytes_parsed++;
+	}
+	else {
+		return -bytes_parsed;
+	}
+
+	json_value_boolean_false->json_value_len = (&serialized_json[bytes_parsed] /* json_string_end */ -
+												json_value_boolean_false->json_value_start);
+	return bytes_parsed;
+}
+
+
+
+/*
+  boolean    => "true"
+             => "false"
+*/
+int parse_json_value_boolean(const unsigned char serialized_json[],
+							 json_value_in_serialized_json_t *json_value_boolean)
 {
 	int bytes_parsed = 0;
 
-	if('{' != serialized_json[bytes_parsed]) {
+	if('t' == serialized_json[0]) {
+		return parse_json_value_boolean_true(serialized_json,
+											 json_value_boolean);
+	}
+	else if('f' == serialized_json[0]) {
+		return parse_json_value_boolean_false(serialized_json,
+											  json_value_boolean);
+	}
+	return bytes_parsed;
+}
+
+/*
+  "null"
+*/
+int parse_json_value_null(const unsigned char serialized_json[],
+						  json_value_in_serialized_json_t *json_value_null)
+{
+	int bytes_parsed = 0;
+	json_value_null->json_value_start = &serialized_json[bytes_parsed];
+
+	if('n' == serialized_json[bytes_parsed]) {
+		bytes_parsed++;
+	}
+	else {
 		return -bytes_parsed;
 	}
-	bytes_parsed++;
+
+	if('u' == serialized_json[bytes_parsed]) {
+		bytes_parsed++;
+	}
+	else {
+		return -bytes_parsed;
+	}
+
+	if('l' == serialized_json[bytes_parsed]) {
+		bytes_parsed++;
+	}
+	else {
+		return -bytes_parsed;
+	}
+
+	if('l' == serialized_json[bytes_parsed]) {
+		bytes_parsed++;
+	}
+	else {
+		return -bytes_parsed;
+	}
+
+	json_value_null->json_value_len = (&serialized_json[bytes_parsed] /* json_string_end */ -
+									   json_value_null->json_value_start);
+	return bytes_parsed;
+}
+
+/*
+  ws  => ""
+      => '0020' ws
+	  => '000A' ws
+	  => '000D' ws
+	  => '0009' ws
+*/
+
+#define IS_WS(c) (0x20 == (c) ||				\
+				  0x0a == (c) ||				\
+				  0x0d == (c) ||				\
+				  0x09 == (c))
+
+int parse_json_ws(const unsigned char serialized_json[],
+				  json_value_in_serialized_json_t *json_ws)
+{
+	int bytes_parsed = 0;
+	json_ws->json_value_start = &serialized_json[bytes_parsed];
+	while('\0' != serialized_json[bytes_parsed]) {
+		if(IS_WS(serialized_json[bytes_parsed])) {
+			bytes_parsed++;
+		}
+		else {
+			break;
+		}
+	}
+	json_ws->json_value_len = (&serialized_json[bytes_parsed] /* json_ws_end */ -
+							   json_ws->json_value_start);
+	return bytes_parsed;
+}
 
 
-	json_string_in_serialized_json_t json_field_name;
+/*
+  element    => ws value ws
+*/
+int parse_json_value(const unsigned char serialized_json[],
+					 json_value_in_serialized_json_t *json_value);
+
+int parse_json_element(const unsigned char serialized_json[],
+					   json_value_in_serialized_json_t *json_value)
+{
+	int bytes_parsed = 0;
+	json_value_in_serialized_json_t json_ws = { NULL, 0};
+	/* ws */
+	parse_json_ws(&serialized_json[bytes_parsed],
+				  &json_ws);
+	bytes_parsed += json_ws.json_value_len;
+
 	int rc = 0;
-	rc = parse_json_string(&serialized_json[bytes_parsed],
-						   &json_field_name);
+	rc = parse_json_value(&serialized_json[bytes_parsed],
+						  json_value);
 	if(rc <= 0) {
 		return -bytes_parsed + rc;
 	}
 	bytes_parsed += rc;
 
-	if(':' != serialized_json[bytes_parsed] /* : seperator */) {
-		return -bytes_parsed;
-	}
-	bytes_parsed++;
+	/* ws */
+	parse_json_ws(&serialized_json[bytes_parsed],
+				  &json_ws);
+	bytes_parsed += json_ws.json_value_len;
 
-	if(json_field_name.json_string_len > 0 &&
-	   0 == strncmp("x",
-					json_field_name.json_string_start,
-					json_field_name.json_string_len)) {
-		json_string_in_serialized_json_t json_field_value;
-		int rc = 0;
-		rc = parse_json_string(&serialized_json[bytes_parsed],
-							   &json_field_value);
-		if(rc <= 0) {
-			return -bytes_parsed + rc;
-		}
-		bytes_parsed += rc;
-
-
-		int len = MIN(10,
-					  json_field_value.json_string_len);
-		strncpy(struct1->x,
-				json_field_value.json_string_start,
-				len);
-		struct1->x[len] = '\0';
-	}
-			   
-
-	if('}' != serialized_json[bytes_parsed]) {
-		return -bytes_parsed;
-	}
-	bytes_parsed++;
-
-	
 	return bytes_parsed;
 }
 
-int main()
+/*
+  member  => ws string ws ':' element
+*/
+int parse_json_member(const unsigned char serialized_json[],
+					  json_value_in_serialized_json_t *json_string,
+					  json_value_in_serialized_json_t *json_value)
+					  
 {
-	//char serialized_json[] = "{}";
-	//char serialized_json[] = "{\"qwertyuiop\":}";
-	//char serialized_json[] = "{\"x\":}";
-	char serialized_json[] = "{\"x\":\"poonam\"}";
-	//char serialized_json[] = "{\"x\":1}";
-	//char serialized_json[] = "{\"y\":1}";
-	
-	struct1_t struct1 = { "vinay" };
-	int rc = parse_json_object_struct1_t(serialized_json,
-										 &struct1);
-	printf("%s\n",serialized_json);
+	int bytes_parsed = 0;
+	json_value_in_serialized_json_t json_ws = { NULL, 0};
+	/* ws */
+	parse_json_ws(&serialized_json[bytes_parsed],
+				  &json_ws);
+	bytes_parsed += json_ws.json_value_len;
+
+	/* string */
+	int rc = 0;
+	rc = parse_json_value_string(&serialized_json[bytes_parsed],
+								 json_string);
 	if(rc <= 0) {
-		printf("parse failed. bytes_parsed=%d\n",-rc);
+		return -bytes_parsed + rc;
+	}
+	bytes_parsed += rc;
+
+	/* ws */
+	parse_json_ws(&serialized_json[bytes_parsed],
+				  &json_ws);
+	bytes_parsed += json_ws.json_value_len;
+
+	/* ':' */
+	if(':' == serialized_json[bytes_parsed]) {
+		bytes_parsed++;
 	}
 	else {
-		printf("parse success. bytes_parsed=%d\n",rc);
-		printf("x:%s\n",struct1.x);
+		return -bytes_parsed;
 	}
+
+	rc = parse_json_element(&serialized_json[bytes_parsed],
+							json_value);
+	if(rc <= 0) {
+		return -bytes_parsed + rc;
+	}
+	bytes_parsed += rc;
+
+	return bytes_parsed;
 }
 
+/*
+  object     => '{' ws '}'
+             => '{' members '}'  // implemented as '{' ws members '}'
+
+  ws         => ""
+             => '0020' ws
+			 => '000A' ws
+			 => '000D' ws
+			 => '0009' ws
+
+  members    => member
+             => member ',' members
+
+  member     => ws string ws ':' element
+
+  element    => ws value ws
+*/
+int parse_json_value_object(const unsigned char serialized_json[],
+							json_value_in_serialized_json_t *json_value_object)
+{
+	int bytes_parsed = 0;
+	json_value_object->json_value_start = &serialized_json[bytes_parsed];
+	/* '{' */
+	if('{' != serialized_json[bytes_parsed] /* open curly bracket */) {
+		return -bytes_parsed;
+	}
+	bytes_parsed++;
+
+
+	json_value_in_serialized_json_t json_ws = { NULL, 0};
+	/* ws */
+	parse_json_ws(&serialized_json[bytes_parsed],
+				  &json_ws);
+	bytes_parsed += json_ws.json_value_len;
+
+	/* } */
+	if('}' == serialized_json[bytes_parsed]) {
+		bytes_parsed++;
+		return bytes_parsed; /* '{' ws '}' */
+	}
+
+	/* members */
+	while('\0' != serialized_json[bytes_parsed]) {
+		/* member */
+		json_value_in_serialized_json_t json_string = { NULL, 0};
+		json_value_in_serialized_json_t json_value = { NULL, 0};
+		int rc = 0;
+		rc = parse_json_member(&serialized_json[bytes_parsed],
+							   &json_string,
+							   &json_value);
+		if(rc <= 0) {
+			return -bytes_parsed + rc;
+		}
+
+		bytes_parsed += rc;
+
+	
+		if(',' == serialized_json[bytes_parsed] /* ',' */) {
+			bytes_parsed++;
+			continue;
+		}
+		else {
+			break;
+		}
+	}
+	
+	if('}' != serialized_json[bytes_parsed] /* close curly bracket */) {
+		return -bytes_parsed;
+	}
+	bytes_parsed++;
+
+	json_value_object->json_value_len = (&serialized_json[bytes_parsed] /* json_string_end */ -
+										 json_value_object->json_value_start);
+
+	return bytes_parsed;
+}
+
+/*
+  value  => object
+         => array
+		 => string
+		 => number
+		 => boolean
+		 => null
+*/
+int parse_json_value(const unsigned char serialized_json[],
+					 json_value_in_serialized_json_t *json_value)
+{
+	int bytes_parsed = 0;
+	if('{' == serialized_json[0]) { //object
+		return parse_json_value_object(serialized_json,
+									   json_value);
+	}
+	else if('[' == serialized_json[0]) {
+		//array
+	}
+	else if('\"' == serialized_json[0]) { //string
+		return parse_json_value_string(serialized_json,
+									   json_value);
+	}
+	else if('-' == serialized_json[0] ||
+			IS_DIGIT(serialized_json[0])) { //number
+		return parse_json_value_number(serialized_json,
+									   json_value);
+	}
+	else if('t' == serialized_json[0] /* true */ ||
+			'f' == serialized_json[0] /* false */) { //boolean
+		return parse_json_value_boolean(serialized_json,
+										json_value);
+	}
+	else if('n' == serialized_json[0] /* null */) { //null
+		return parse_json_value_null(serialized_json,
+									 json_value);
+	}
+	return -bytes_parsed;
+}
+
+#define SUFFIX "jjjj"
+int main()
+{
+	unsigned char serialized_json[][1024] =
+		{
+			"\"ritesh\"" SUFFIX,
+			"\"ritesh"SUFFIX,
+			"\"ritesh\x01\"" SUFFIX,
+			"\"ritesh\x1f\"" SUFFIX,
+			"\"ritesh\x20\"" SUFFIX,
+			"\"ritesh\xff\"" SUFFIX,
+			"\"ritesh\\\"\\\\/\\/\\b\\f\\n\\r\\t/\\u0189agarwal\"" SUFFIX,
+			"\"ritesh\\a\"" SUFFIX,
+			"\"ritesh\\u0\"" SUFFIX,
+			"\"ritesh\\u00\"" SUFFIX,
+			"\"ritesh\\u000\"" SUFFIX,
+			"\"ritesh\\u0000\"" SUFFIX,
+			"\"ritesh\\u000a\"" SUFFIX,
+			"\"ritesh\\u000f\"" SUFFIX,
+			"\"ritesh\\u000A\"" SUFFIX,
+			"\"ritesh\\u000F\"" SUFFIX,
+			"\"ritesh\\u000g\"" SUFFIX,
+			"\"ritesh\\u000G\"" SUFFIX,
+			"\"ritesh\\u000`\"" SUFFIX,
+			"\"ritesh\\u000@\"" SUFFIX,
+			"-------------------",
+
+			"0" SUFFIX,
+			"-0" SUFFIX,
+			"1" SUFFIX,
+			"-1" SUFFIX,
+			"9" SUFFIX,
+			"-9" SUFFIX,
+			"/" SUFFIX,
+			":" SUFFIX,
+			"01" SUFFIX,
+			"-01" SUFFIX,
+			"11" SUFFIX,
+			"-11" SUFFIX,
+			"91" SUFFIX,
+			"-91" SUFFIX,
+			"11234567890" SUFFIX,
+			"-11234567890" SUFFIX,
+			"91234567890" SUFFIX,
+			"-91234567890" SUFFIX,
+			"1234567890.1" SUFFIX,
+			"1234567890.a" SUFFIX,
+			"1234567890.0123456789" SUFFIX,
+			"1234567890E1" SUFFIX,
+			"1234567890E+1" SUFFIX,
+			"1234567890E-1" SUFFIX,
+			"1234567890e1" SUFFIX,
+			"1234567890e+1" SUFFIX,
+			"1234567890e-1" SUFFIX,
+			"1234567890E" SUFFIX,
+			"1234567890e" SUFFIX,
+			"1234567890E-" SUFFIX,
+			"1234567890e-" SUFFIX,
+			"1234567890E+" SUFFIX,
+			"1234567890e+" SUFFIX,
+			"1234567890E1234567890" SUFFIX,
+			"1234567890.0123456789E1234567890" SUFFIX,
+			"-------------------",
+			
+			"true" SUFFIX,
+			"truE" SUFFIX,
+			"false" SUFFIX,
+			"falsE" SUFFIX,
+			"-------------------",
+
+			"null" SUFFIX,
+			"nulL" SUFFIX,
+			"-------------------",
+
+			"zzz" SUFFIX,
+			"-------------------",
+
+			"{}" SUFFIX,
+			"{ }" SUFFIX,
+			"{\t}" SUFFIX,
+			"{\r}" SUFFIX,
+			"{\n}" SUFFIX,
+			"{ \t }" SUFFIX,
+			"-------------------",
+
+			"{\"x\":2}" SUFFIX,
+			"{ \"x\":2}" SUFFIX,
+			"{\"x\" :2}" SUFFIX,
+			"{\"x\": 2}" SUFFIX,
+			"{\"x\":2 }" SUFFIX,
+			"{\"x\":2,\"y\":3}" SUFFIX,
+			"{\"x\":2 ,\"y\":3}" SUFFIX,
+			"{\"x\":2 , \"y\":3}" SUFFIX,
+			"{\"x\":2,\"y\" :3}" SUFFIX,
+			"{\"x\":2,\"y\": 3}" SUFFIX,
+			"{\"x\":2,\"y\":3 }" SUFFIX,
+			"{" SUFFIX,
+			"{ " SUFFIX,
+			"{ \"string\"" SUFFIX,
+			"{ \"string\":" SUFFIX,
+			"{ \"string\":2" SUFFIX,
+			"{ \"string\":2}" SUFFIX,
+			"{ \"string\":2,}" SUFFIX,
+			"{ \"string\":2,  \"string\"}" SUFFIX,
+			"{ \"string\":2,  \"string\":}" SUFFIX,
+			"{ \"string\":2,  \"string\":2}" SUFFIX,
+			"{\"x\":2, \"obj_in\":{\"y\":3}}" SUFFIX,
+			"{\"x\":2, \"obj_in\":{\"obj_in_in\":{\"x1\":2},\"y\":3}}" SUFFIX,
+			"-------------------",
+		};
+
+	for(unsigned int i = 0;i<(sizeof(serialized_json) / sizeof(char[1024]));i++) {
+		json_value_in_serialized_json_t json_value;
+		int rc = parse_json_value(serialized_json[i],
+								  &json_value);
+		unsigned char *na =  (unsigned char*)"*N/A*";
+		printf("%50s | %50.*s | %5d\n",
+			   serialized_json[i],
+			   ((rc>0)?(json_value.json_value_len):(5)),
+			   ((rc>0)?(json_value.json_value_start):(na)),
+			   rc);
+			   
+		
+	}
+}
