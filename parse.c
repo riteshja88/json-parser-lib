@@ -47,7 +47,7 @@ typedef struct json_value_in_serialized_json_t {
 				   ((c) >= 'A' && (c) <= 'F'))
 
 int parse_json_value_string(const unsigned char serialized_json[],
-							json_value_in_serialized_json_t *json_value_string)
+							json_value_in_serialized_json_t * const json_value_string)
 {
 	int bytes_parsed = 0;
 	json_value_string->json_value_start = &serialized_json[bytes_parsed];
@@ -158,7 +158,7 @@ int parse_json_value_string(const unsigned char serialized_json[],
 
 */
 int parse_json_value_number(const unsigned char serialized_json[],
-							json_value_in_serialized_json_t *json_value_number)
+							json_value_in_serialized_json_t * const json_value_number)
 {
 	int bytes_parsed = 0;
 	json_value_number->json_value_start = &serialized_json[bytes_parsed];
@@ -240,7 +240,7 @@ int parse_json_value_number(const unsigned char serialized_json[],
 		}
 	}
 
-	json_value_number->json_value_len = (&serialized_json[bytes_parsed] /* json_string_end */ -
+	json_value_number->json_value_len = (&serialized_json[bytes_parsed] /* json_number_end */ -
 										 json_value_number->json_value_start);
 	return bytes_parsed;
 }
@@ -250,7 +250,7 @@ int parse_json_value_number(const unsigned char serialized_json[],
   "true"
 */
 int parse_json_value_boolean_true(const unsigned char serialized_json[],
-								  json_value_in_serialized_json_t *json_value_boolean_true)
+								  json_value_in_serialized_json_t * const json_value_boolean_true)
 {
 	int bytes_parsed = 0;
 	json_value_boolean_true->json_value_start = &serialized_json[bytes_parsed];
@@ -283,7 +283,7 @@ int parse_json_value_boolean_true(const unsigned char serialized_json[],
 		return -bytes_parsed;
 	}
 
-	json_value_boolean_true->json_value_len = (&serialized_json[bytes_parsed] /* json_string_end */ -
+	json_value_boolean_true->json_value_len = (&serialized_json[bytes_parsed] /* json_boolea_true_end */ -
 											   json_value_boolean_true->json_value_start);
 	return bytes_parsed;
 }
@@ -292,7 +292,7 @@ int parse_json_value_boolean_true(const unsigned char serialized_json[],
   "false"
 */
 int parse_json_value_boolean_false(const unsigned char serialized_json[],
-								   json_value_in_serialized_json_t *json_value_boolean_false)
+								   json_value_in_serialized_json_t * const json_value_boolean_false)
 {
 	int bytes_parsed = 0;
 	json_value_boolean_false->json_value_start = &serialized_json[bytes_parsed];
@@ -332,7 +332,7 @@ int parse_json_value_boolean_false(const unsigned char serialized_json[],
 		return -bytes_parsed;
 	}
 
-	json_value_boolean_false->json_value_len = (&serialized_json[bytes_parsed] /* json_string_end */ -
+	json_value_boolean_false->json_value_len = (&serialized_json[bytes_parsed] /* json_boolean_false_end */ -
 												json_value_boolean_false->json_value_start);
 	return bytes_parsed;
 }
@@ -344,7 +344,7 @@ int parse_json_value_boolean_false(const unsigned char serialized_json[],
              => "false"
 */
 int parse_json_value_boolean(const unsigned char serialized_json[],
-							 json_value_in_serialized_json_t *json_value_boolean)
+							 json_value_in_serialized_json_t * const json_value_boolean)
 {
 	int bytes_parsed = 0;
 
@@ -363,7 +363,7 @@ int parse_json_value_boolean(const unsigned char serialized_json[],
   "null"
 */
 int parse_json_value_null(const unsigned char serialized_json[],
-						  json_value_in_serialized_json_t *json_value_null)
+						  json_value_in_serialized_json_t * const json_value_null)
 {
 	int bytes_parsed = 0;
 	json_value_null->json_value_start = &serialized_json[bytes_parsed];
@@ -396,7 +396,7 @@ int parse_json_value_null(const unsigned char serialized_json[],
 		return -bytes_parsed;
 	}
 
-	json_value_null->json_value_len = (&serialized_json[bytes_parsed] /* json_string_end */ -
+	json_value_null->json_value_len = (&serialized_json[bytes_parsed] /* json_null_end */ -
 									   json_value_null->json_value_start);
 	return bytes_parsed;
 }
@@ -414,8 +414,8 @@ int parse_json_value_null(const unsigned char serialized_json[],
 				  0x0d == (c) ||				\
 				  0x09 == (c))
 
-int parse_json_ws(const unsigned char serialized_json[],
-				  json_value_in_serialized_json_t *json_ws)
+int ignore_json_ws(const unsigned char serialized_json[],
+				  json_value_in_serialized_json_t * const json_ws)
 {
 	int bytes_parsed = 0;
 	json_ws->json_value_start = &serialized_json[bytes_parsed];
@@ -437,16 +437,16 @@ int parse_json_ws(const unsigned char serialized_json[],
   element    => ws value ws
 */
 int parse_json_value(const unsigned char serialized_json[],
-					 json_value_in_serialized_json_t *json_value);
+					 json_value_in_serialized_json_t * const json_value);
 
 int parse_json_element(const unsigned char serialized_json[],
-					   json_value_in_serialized_json_t *json_value)
+					   json_value_in_serialized_json_t * const json_value)
 {
 	int bytes_parsed = 0;
 	json_value_in_serialized_json_t json_ws = { NULL, 0};
 	/* ws */
-	parse_json_ws(&serialized_json[bytes_parsed],
-				  &json_ws);
+	ignore_json_ws(&serialized_json[bytes_parsed],
+				   &json_ws);
 	bytes_parsed += json_ws.json_value_len;
 
 	int rc = 0;
@@ -458,8 +458,8 @@ int parse_json_element(const unsigned char serialized_json[],
 	bytes_parsed += rc;
 
 	/* ws */
-	parse_json_ws(&serialized_json[bytes_parsed],
-				  &json_ws);
+	ignore_json_ws(&serialized_json[bytes_parsed],
+				   &json_ws);
 	bytes_parsed += json_ws.json_value_len;
 
 	return bytes_parsed;
@@ -469,15 +469,15 @@ int parse_json_element(const unsigned char serialized_json[],
   member  => ws string ws ':' element
 */
 int parse_json_member(const unsigned char serialized_json[],
-					  json_value_in_serialized_json_t *json_string,
-					  json_value_in_serialized_json_t *json_value)
+					  json_value_in_serialized_json_t * const json_string,
+					  json_value_in_serialized_json_t * const json_value)
 					  
 {
 	int bytes_parsed = 0;
 	json_value_in_serialized_json_t json_ws = { NULL, 0};
 	/* ws */
-	parse_json_ws(&serialized_json[bytes_parsed],
-				  &json_ws);
+	ignore_json_ws(&serialized_json[bytes_parsed],
+				   &json_ws);
 	bytes_parsed += json_ws.json_value_len;
 
 	/* string */
@@ -490,8 +490,8 @@ int parse_json_member(const unsigned char serialized_json[],
 	bytes_parsed += rc;
 
 	/* ws */
-	parse_json_ws(&serialized_json[bytes_parsed],
-				  &json_ws);
+	ignore_json_ws(&serialized_json[bytes_parsed],
+				   &json_ws);
 	bytes_parsed += json_ws.json_value_len;
 
 	/* ':' */
@@ -530,7 +530,7 @@ int parse_json_member(const unsigned char serialized_json[],
   element    => ws value ws
 */
 int parse_json_value_object(const unsigned char serialized_json[],
-							json_value_in_serialized_json_t *json_value_object)
+							json_value_in_serialized_json_t * const json_value_object)
 {
 	int bytes_parsed = 0;
 	json_value_object->json_value_start = &serialized_json[bytes_parsed];
@@ -543,7 +543,7 @@ int parse_json_value_object(const unsigned char serialized_json[],
 
 	json_value_in_serialized_json_t json_ws = { NULL, 0};
 	/* ws */
-	parse_json_ws(&serialized_json[bytes_parsed],
+	ignore_json_ws(&serialized_json[bytes_parsed],
 				  &json_ws);
 	bytes_parsed += json_ws.json_value_len;
 
@@ -583,7 +583,7 @@ int parse_json_value_object(const unsigned char serialized_json[],
 	}
 	bytes_parsed++;
 
-	json_value_object->json_value_len = (&serialized_json[bytes_parsed] /* json_string_end */ -
+	json_value_object->json_value_len = (&serialized_json[bytes_parsed] /* json_object_end */ -
 										 json_value_object->json_value_start);
 
 	return bytes_parsed;
