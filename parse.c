@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 
 typedef struct json_value_in_serialized_json_t {
 	const unsigned char *json_value_start;
@@ -411,15 +412,21 @@ int parse_json_value_null(const unsigned char serialized_json[],
 		 => null
 */
 int parse_json_value_object(const unsigned char serialized_json[],
-							json_value_in_serialized_json_t * const json_value_object);
+							json_value_in_serialized_json_t * const json_value_object,
+							void * const trie,
+							void * const obj);
 int parse_json_value_array(const unsigned char serialized_json[],
 						   json_value_in_serialized_json_t * const json_value_array);
 int parse_json_value(const unsigned char serialized_json[],
-					 json_value_in_serialized_json_t * const json_value)
+					 json_value_in_serialized_json_t * const json_value,
+					 void * const trie,
+					 void * const obj)
 {
 	if('{' == serialized_json[0]) { //object
 		return parse_json_value_object(serialized_json,
-									   json_value);
+									   json_value,
+									   trie,
+									   obj);
 	}
 	else if('[' == serialized_json[0]) { //array
 		return parse_json_value_array(serialized_json,
@@ -481,7 +488,9 @@ int ignore_json_ws(const unsigned char serialized_json[],
   element    => ws value ws
 */
 int parse_json_element(const unsigned char serialized_json[],
-					   json_value_in_serialized_json_t * const json_value)
+					   json_value_in_serialized_json_t * const json_value,
+					   void *trie,
+					   void *obj)
 {
 	int bytes_parsed = 0;
 	json_value_in_serialized_json_t json_ws = { NULL, 0};
@@ -492,7 +501,9 @@ int parse_json_element(const unsigned char serialized_json[],
 
 	int rc = 0;
 	rc = parse_json_value(&serialized_json[bytes_parsed],
-						  json_value);
+						  json_value,
+						  trie,
+						  obj);
 	if(rc <= 0) {
 		return -bytes_parsed + rc;
 	}
@@ -506,12 +517,16 @@ int parse_json_element(const unsigned char serialized_json[],
 	return bytes_parsed;
 }
 
+
+
 /*
   member  => ws string ws ':' element
 */
 int parse_json_member(const unsigned char serialized_json[],
 					  json_value_in_serialized_json_t * const json_string,
-					  json_value_in_serialized_json_t * const json_value)
+					  json_value_in_serialized_json_t * const json_value,
+					  void *trie,
+					  void *obj)
 					  
 {
 	int bytes_parsed = 0;
@@ -543,8 +558,27 @@ int parse_json_member(const unsigned char serialized_json[],
 		return -bytes_parsed;
 	}
 
-	rc = parse_json_element(&serialized_json[bytes_parsed],
-							json_value);
+	/* element */
+	trie_t *result = NULL;
+	void *parse_json_element_fn_pointer = NULL;
+	if(0 == trie_search(trie,
+						json_string->json_value_start,
+						json_string->json_value_len,
+						result,
+						parse_json_element_fn_pointer)) {
+		// found in trie
+		rc = parse_json_element_fn_pointer(&serialized_json[bytes_parsed],
+										   json_value,
+										   trie /* NULL if not json_object */,
+										   obj);
+	}
+	else {
+		// validate and ignore json element
+		rc = parse_json_element(&serialized_json[bytes_parsed],
+								json_value,
+								trie,
+								obj);
+	}
 	if(rc <= 0) {
 		return -bytes_parsed + rc;
 	}
@@ -571,7 +605,9 @@ int parse_json_member(const unsigned char serialized_json[],
   element    => ws value ws
 */
 int parse_json_value_object(const unsigned char serialized_json[],
-							json_value_in_serialized_json_t * const json_value_object)
+							json_value_in_serialized_json_t * const json_value_object,
+							void *trie,
+							void *obj)
 {
 	int bytes_parsed = 0;
 	json_value_object->json_value_start = &serialized_json[bytes_parsed];
@@ -592,7 +628,7 @@ int parse_json_value_object(const unsigned char serialized_json[],
 	if('}' == serialized_json[bytes_parsed]) {
 		bytes_parsed++;
 		json_value_object->json_value_len = (&serialized_json[bytes_parsed] /* json_object_end */ -
-										 json_value_object->json_value_start);
+											 json_value_object->json_value_start);
 		return bytes_parsed; /* '{' ws '}' */
 	}
 
@@ -604,7 +640,9 @@ int parse_json_value_object(const unsigned char serialized_json[],
 		int rc = 0;
 		rc = parse_json_member(&serialized_json[bytes_parsed],
 							   &json_string,
-							   &json_value);
+							   &json_value,
+							   trie,
+							   obj);
 		if(rc <= 0) {
 			return -bytes_parsed + rc;
 		}
@@ -673,7 +711,9 @@ int parse_json_value_array(const unsigned char serialized_json[],
 		json_value_in_serialized_json_t json_value = { NULL, 0};
 		int rc = 0;
 		rc = parse_json_element(&serialized_json[bytes_parsed],
-								&json_value);
+								&json_value,
+								NULL,
+								NULL);
 		if(rc <= 0) {
 			return -bytes_parsed + rc;
 		}
@@ -700,6 +740,28 @@ int parse_json_value_array(const unsigned char serialized_json[],
 	return bytes_parsed;
 }
 
+
+
+int parse_json_element_number(const unsigned char serialized_json[],
+							  double * const json_element_number_out)
+{
+	*json_element_number_out = 0.0; //init
+	json_value_in_serialized_json_t json_value = { NULL, 0};
+	int rc = parse_json_element(serialized_json,
+								&json_value,
+								NULL,
+								NULL);
+	if(rc <= 0) {
+		return rc;
+	}
+
+	if(IS_DIGIT(json_value.json_value_start[0]) ||
+	   '-' == json_value.json_value_start[0]) { /* number type match */
+		*json_element_number_out = atof((const char *)json_value.json_value_start);
+	}
+
+	return rc;
+}
 
 
 #define SUFFIX "jjjj"
@@ -833,7 +895,9 @@ int main()
 	for(unsigned int i = 0;i<(sizeof(serialized_json) / sizeof(char[1024]));i++) {
 		json_value_in_serialized_json_t json_value;
 		int rc = parse_json_element(serialized_json[i],
-									&json_value);
+									&json_value,
+									NULL,
+									NULL);
 		unsigned char *na =  (unsigned char*)"*N/A*";
 		printf("%50s | %50.*s | %5d\n",
 			   serialized_json[i],
@@ -843,4 +907,18 @@ int main()
 			   
 		
 	}
+
+	double json_element_number = 0;
+	int rc = parse_json_element_number((const unsigned char *)" -3.1e2 ",
+									   &json_element_number);
+	if(rc > 0) {
+		printf("json_element_number = %lf (%ld)\n",
+			   json_element_number,
+			   (long) json_element_number);
+	}
+	else {
+		printf("json_element_number = parse fail\n");
+	}
+
+	return 0;
 }
